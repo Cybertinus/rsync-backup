@@ -1,0 +1,167 @@
+#!/bin/bash
+
+############################
+# Name: Rsync backup       #
+# Author: Cybertinus       #
+# Version: 1.0             #
+# Release date: 21-07-2012 #
+############################
+
+##########
+# CONFIG #
+##########
+
+# GLOBAL CONFIG
+BASEDESTDIR='/backup'
+EMAIL_TO='user@domain.tld'
+EMAIL_FROM='Server <server@domain.tld>'
+EMAIL_SUBJECT="Rsync backup"
+TEMPLOGFILE='/tmp/rsyncbackup.log'
+
+#################
+# ACTUAL SCRIPT #
+#################
+
+# Check if a correct configuration file is given as first argument, and if so: load it
+if [ -z $1 ] ; then
+	echo "You didn't provide a configurationfile for the backup as first argument. Please do so." 1>&2
+	exit 1
+elif [ ! -f $1 ] ; then
+	echo "The configurationfile you provided for backups doesn't exists. Please correct this problem." 1>&2
+	exit 2
+else
+	source $1
+	if [ -z "${BACKUPDIRS}" ] ; then
+		echo "You didn't specify which directories should be backupped in the configsetting BACKUPDIRS in configfile ${1}." 1>&2
+		exit 3
+	fi
+	if [ -z "${SAVETIME}" ] ; then
+		echo "You didn't specify how long the backups should be saved in configurationsetting SAVETIME  in configfile ${1}." 1>&2
+		exit 3
+	fi
+fi
+
+# Check to see if the base backupdirectory is a seperate mountpoint.
+#  This to prevent filling a partition with a backup that can't find on it.
+#  And to make sure that the backup goes to a seperate device, to make the backup more secure
+if [ -z "$(mount | grep " ${BASEDESTDIR} ")" ] ; then
+	echo "The backup destination directory is not mounted on a seperate mountpoint. Aborting backup" 1>&2
+	exit 4
+fi
+
+# Adds a forward slash to the end of a string, if there isn't one
+function addslash {
+	if [ ${1: -1} != '/' ] ; then
+		echo "${1}/"
+	else
+		echo $1
+	fi
+}
+
+# Delete the output log file if it exists
+if [ -f "${TEMPLOGFILE}" ] ; then
+    rm "${TEMPLOGFILE}"
+fi
+# Create an empty output log
+touch "${TEMPLOGFILE}"
+
+# Redirect all output to the output log
+exec >> "${TEMPLOGFILE}"
+exec 2>&1
+
+# Set the string seperator to commas only, not to space, tabs and newlines.
+#  Needed to be able to backup directories with a space in them
+OLDIFS=$IFS
+IFS=,
+
+# Save the starttime of the script, needed in the e-mail later
+STARTSCRIPT=$(date)
+
+# Loop through all the defined backupdirectories and backup them all
+for BACKUPDIR in $BACKUPDIRS ; do
+	# save the startime of the backup, in multiple formats
+	BACKUPSTARTTIME=$(date)
+	CURTIME=$(date --date="${BACKUPSTARTTIME}" +%Y%m%d_%H%M%S)
+	CURTIMESTAMP=$(date --date="${BACKUPSTARTTIME}" +%s)
+
+	# Make sure there are slashes behind all the directories, so rsync copies the
+	#  content, not the directories itself
+	BACKUPDIR=$(addslash $BACKUPDIR)
+	DESTDIR=$(addslash $BASEDESTDIR)
+	DESTDIR+="rsync/"
+	DESTDIR+=${BACKUPDIR}
+	
+	# Create the destination directory, if it doesn't exist yet (as a directory)
+	if [ ! -d ${DESTDIR} ] ; then
+		if [ -f ${DESTDIR} ] ; then
+			rm -f ${DESTDIR}
+		fi
+		
+		mkdir -p ${DESTDIR}
+
+		# Making the initial sync, so real syncs have a dir to hardlink too
+		echo "Making the initial backup of ${BACKUPDIR} at $(date)."
+		echo "The inital backup is only needed for the first real sync. It is removed afterwards."
+		rsync --archive --one-file-system --xattrs --acls ${BACKUPDIR} ${DESTDIR}backup-initial
+		ln -s ${DESTDIR}backup-initial ${DESTDIR}last
+	fi
+
+	# Run the actual backup
+	echo "Starting the backup of directory '${BACKUPDIR}' on $(date)"
+	rsync --archive --one-file-system --xattrs --acls --link-dest=${DESTDIR}last ${BACKUPDIR} ${DESTDIR}backup-${CURTIME}
+	# Update the "last" symlink to point to the latest backup
+	rm ${DESTDIR}last
+	ln -s ${DESTDIR}backup-${CURTIME} ${DESTDIR}last
+	echo "Completed the backup at $(date)"
+
+	# Getting the correct timestamp convertor to calculate how many seconds a
+	#  backup should be saved
+	if [ ${SAVETIME: -1} = 'w' ] ; then
+		MULTIPLIER=$((7 * 24 * 60 * 60))
+	elif [ ${SAVETIME: -1} = 'd' ] ; then
+		MULTIPLIER=$((24 * 60 * 60))
+	elif [ ${SAVETIME: -1} = 'h' ] ; then
+		MULTIPLIER=$((60 * 60))
+	fi
+	SECONDSSAVED=$((${SAVETIME%?} * $MULTIPLIER))
+
+	# Removing the old backups from the target directory
+	echo "Checking for and removing old backups at $(date)"
+	for backupdir in $(ls -d ${DESTDIR}backup-* | grep -v backup-initial) ; do
+		BACKUPTIME=$(basename $backupdir | cut -d '-' -f 2)
+		YEAR=$(echo ${BACKUPTIME} | awk '{print substr($0, 0, 4)}')
+		MONTH=$(echo ${BACKUPTIME} | awk '{print substr($0, 5, 2)}')
+		DAY=$(echo ${BACKUPTIME} | awk '{print substr($0, 7, 2)}')
+		HOUR=$(echo ${BACKUPTIME} | awk '{print substr($0, 10, 2)}')
+		MINUTE=$(echo ${BACKUPTIME} | awk '{print substr($0, 12, 2)}')
+		SECOND=$(echo ${BACKUPTIME} | awk '{print substr($0, 14, 2)}')
+	
+		BACKUPTIMESTAMP=$(date --date="${YEAR}-${MONTH}-${DAY} ${HOUR}:${MINUTE}:${SECOND}" +%s)
+		TIMEDIFF=$(($CURTIMESTAMP - $BACKUPTIMESTAMP))
+		if [ "${TIMEDIFF}" -gt "${SECONDSSAVED}" ] ; then
+			echo "Removing ${backupdir}"
+			rm -rf $backupdir
+		fi
+	done
+	if [ -d "${DESTDIR}backup-initial" ] ; then
+		echo "Removing initial backup"
+		rm -rf "${DESTDIR}backup-initial"
+	fi
+	echo "Done checking for and removing of old backups at $(date)"
+done
+
+# Set the string seperator back to it's original value, to prevent possible problems
+IFS=$OLDIFS
+
+# put the output log into an e-mail and send it to the user
+SCHEMANAME=$(basename "${1}")
+EMAIL_SUBJECT+=" ${SCHEMANAME}"
+
+/bin/mail \
+	-s $EMAIL_SUBJECT \
+	-a "From: $EMAIL_FROM" \
+	-a "Date: $STARTDATE" \
+	$EMAIL_TO < "${TEMPLOGFILE}"
+
+# Delete the output log
+rm "${TEMPLOGFILE}"
