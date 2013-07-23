@@ -47,11 +47,11 @@ function addslash {
 }
 
 # Delete the output log file if it exists
-if [ -f "${TEMPLOGFILE}" ] ; then
-    rm "${TEMPLOGFILE}"
-fi
+#if [ -f "${TEMPLOGFILE}" ] ; then
+#    rm "${TEMPLOGFILE}"
+#fi
 # Create an empty output log
-touch "${TEMPLOGFILE}"
+#touch "${TEMPLOGFILE}"
 
 # Redirect all output to the output log
 exec >> "${TEMPLOGFILE}"
@@ -68,9 +68,9 @@ STARTSCRIPT=$(date)
 # Loop through all the defined backupdirectories and backup them all
 for BACKUPDIR in $BACKUPDIRS ; do
 	# save the startime of the backup, in multiple formats
-	BACKUPSTARTTIME=$(date)
-	CURTIME=$(date --date="${BACKUPSTARTTIME}" +%Y%m%d_%H%M%S)
-	CURTIMESTAMP=$(date --date="${BACKUPSTARTTIME}" +%s)
+	CURTIMESTAMP=$(date +%s)
+	BACKUPSTARTTIME=$(date --date="@${CURTIMESTAMP}")
+	CURTIME=$(date --date="@${CURTIMESTAMP}" +%Y%m%d_%H%M%S)
 
 	# Make sure there are slashes behind all the directories, so rsync copies the
 	#  content, not the directories itself
@@ -152,4 +152,4 @@ EMAIL_SUBJECT+=" ${SCHEMANAME}"
 	$EMAIL_TO < "${TEMPLOGFILE}"
 
 # Delete the output log
-rm "${TEMPLOGFILE}"
+#rm "${TEMPLOGFILE}"
