@@ -7,20 +7,8 @@
 # Release date: 21-07-2012 #
 ############################
 
-##########
-# CONFIG #
-##########
-
-# GLOBAL CONFIG
-BASEDESTDIR='/backup'
-EMAIL_TO='user@domain.tld'
-EMAIL_FROM='Server <server@domain.tld>'
-EMAIL_SUBJECT="Rsync backup"
-TEMPLOGFILE='/tmp/rsyncbackup.log'
-
-#################
-# ACTUAL SCRIPT #
-#################
+# Include the global config
+source globalconfig
 
 # Check if a correct configuration file is given as first argument, and if so: load it
 if [ -z $1 ] ; then

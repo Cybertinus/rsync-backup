@@ -1,0 +1,5 @@
+BASEDESTDIR='/backup'
+EMAIL_TO='user@domain.tld'
+EMAIL_FROM='Server <server@domain.tld>'
+EMAIL_SUBJECT="Rsync backup"
+TEMPLOGFILE='/tmp/rsyncbackup.log'
