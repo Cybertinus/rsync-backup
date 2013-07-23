@@ -7,26 +7,95 @@
 # Release date: 21-07-2012 #
 ############################
 
+# Adds a forward slash to the end of a string, if there isn't one
+function addslash {
+	if [ ${1: -1} != '/' ] ; then
+		echo "${1}/"
+	else
+		echo $1
+	fi
+}
+
+# A function that shows how this scripts works
+function showhelp {
+	echo "${0} - an wrapper around rsync focused on backups
+
+Arguments:
+-c FILE : The location of the external backupfile
+-m      : Disable sending of the e-mail with the backuprapport
+-v      : Verbose mode, put the output of the script on the screen.
+            Disables the backuprapport e-mail
+-h      : Shows this help"
+}
+
 # Include the global config
 source globalconfig
 
-# Check if a correct configuration file is given as first argument, and if so: load it
+SENDMAIL='Y'
+EXTERNALCONFIGFILE=''
+VERBOSE='N'
+# Check if there are any arguments given (there should be)
 if [ -z $1 ] ; then
-	echo "You didn't provide a configurationfile for the backup as first argument. Please do so." 1>&2
+	echo "You didn't provide any parameters. Please do so. Otherwise the script doesn't know what to do." 1>&2
 	exit 1
-elif [ ! -f $1 ] ; then
+# Support for the old and deprecaded way of specifying the external configurationfile
+elif [ ! -f $1 -a $# = 1 -a ! "${1:0:1}" = '-' ] ; then
 	echo "The configurationfile you provided for backups doesn't exists. Please correct this problem." 1>&2
 	exit 2
+# Parse the remaining arguments
 else
-	source $1
-	if [ -z "${BACKUPDIRS}" ] ; then
-		echo "You didn't specify which directories should be backupped in the configsetting BACKUPDIRS in configfile ${1}." 1>&2
-		exit 3
-	fi
-	if [ -z "${SAVETIME}" ] ; then
-		echo "You didn't specify how long the backups should be saved in configurationsetting SAVETIME  in configfile ${1}." 1>&2
-		exit 3
-	fi
+	while getopts :c:mvh opt; do
+		case $opt in
+			c)
+				if [ ! -f "${OPTARG}" ] ; then
+					echo "The configurationfile you provided for backups doesn't exists. Please correct this problem." 1>&2
+					exit 2
+				fi
+				EXTERNALCONFIGFILE="${OPTARG}"
+				;;
+			m)
+				SENDMAIL='N'
+				;;
+			v)
+				VERBOSE='Y'
+				;;
+			h)
+				showhelp
+				exit 0
+				;;
+			\?)
+				echo "Invalid argument -${OPTARG}." 1>&2
+				echo '' 1>&2
+				showhelp
+				exit 4
+				;;
+			:)
+				echo "Option -${OPTARG} requires an argument." 1>&2
+				echo '' 1>&2
+				showhelp
+				exit 4
+				;;
+		esac
+	done
+fi
+
+# Disable the e-mail when verbose mode is ativated. This is needed because when verbosemode is, nothing
+#  is placed in the logfile, so there is no content to e-mail.
+if [ "${VERBOSE}" = 'Y' ] ; then
+	SENDMAIL='N'
+fi
+
+# Load the external configurationfile
+source "${EXTERNALCONFIGFILE}"
+
+# Check if everything needed in the external configuration file is in fact there
+if [ -z "${BACKUPDIRS}" ] ; then
+	echo "You didn't specify which directories should be backupped in the configsetting BACKUPDIRS in configfile ${1}." 1>&2
+	exit 3
+fi
+if [ -z "${SAVETIME}" ] ; then
+	echo "You didn't specify how long the backups should be saved in configurationsetting SAVETIME  in configfile ${1}." 1>&2
+	exit 3
 fi
 
 # Check to see if the base backupdirectory is a seperate mountpoint.
@@ -37,15 +106,6 @@ if [ -z "$(mount | grep " ${BASEDESTDIR} ")" ] ; then
 	exit 4
 fi
 
-# Adds a forward slash to the end of a string, if there isn't one
-function addslash {
-	if [ ${1: -1} != '/' ] ; then
-		echo "${1}/"
-	else
-		echo $1
-	fi
-}
-
 # Delete the output log file if it exists
 if [ -f "${TEMPLOGFILE}" ] ; then
     rm "${TEMPLOGFILE}"
@@ -53,9 +113,11 @@ fi
 # Create an empty output log
 touch "${TEMPLOGFILE}"
 
-# Redirect all output to the output log
-exec >> "${TEMPLOGFILE}"
-exec 2>&1
+# Redirect all output to the output log, when not in verbosemode
+if [ "${VERBOSE}" = 'N' ] ; then
+	exec >> "${TEMPLOGFILE}"
+	exec 2>&1
+fi
 
 # Set the string seperator to commas only, not to space, tabs and newlines.
 #  Needed to be able to backup directories with a space in them
@@ -137,20 +199,24 @@ for BACKUPDIR in $BACKUPDIRS ; do
 		rm -rf "${DESTDIR}backup-initial"
 	fi
 	echo "Done checking for and removing of old backups at $(date)"
+	echo ""
 done
 
 # Set the string seperator back to it's original value, to prevent possible problems
 IFS=$OLDIFS
 
-# put the output log into an e-mail and send it to the user
-SCHEMANAME=$(basename "${1}")
-EMAIL_SUBJECT+=" ${SCHEMANAME}"
+# Check to see if the output should be send to the user
+if [ "${SENDMAIL}" = 'Y' ] ; then
+	# put the output log into an e-mail and send it to the user
+	SCHEMANAME=$(basename "${EXTERNALCONFIGFILE}")
+	EMAIL_SUBJECT+=" ${SCHEMANAME}"
 
-/bin/mail \
-	-s $EMAIL_SUBJECT \
-	-a "From: $EMAIL_FROM" \
-	-a "Date: $STARTDATE" \
-	$EMAIL_TO < "${TEMPLOGFILE}"
+	/bin/mail \
+		-s "${EMAIL_SUBJECT}" \
+		-a "From: $EMAIL_FROM" \
+		-a "Date: $STARTDATE" \
+		$EMAIL_TO < "${TEMPLOGFILE}"
+fi
 
 # Delete the output log
 rm "${TEMPLOGFILE}"
