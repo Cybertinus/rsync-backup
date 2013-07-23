@@ -115,6 +115,7 @@ for BACKUPDIR in $BACKUPDIRS ; do
 
 	# Removing the old backups from the target directory
 	echo "Checking for and removing old backups at $(date)"
+	IFS=$'\n'
 	for backupdir in $(ls -d ${DESTDIR}backup-* | grep -v backup-initial) ; do
 		BACKUPTIME=$(basename $backupdir | cut -d '-' -f 2)
 		YEAR=$(echo ${BACKUPTIME} | awk '{print substr($0, 0, 4)}')
