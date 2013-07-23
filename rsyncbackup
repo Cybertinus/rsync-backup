@@ -47,11 +47,11 @@ function addslash {
 }
 
 # Delete the output log file if it exists
-#if [ -f "${TEMPLOGFILE}" ] ; then
-#    rm "${TEMPLOGFILE}"
-#fi
+if [ -f "${TEMPLOGFILE}" ] ; then
+    rm "${TEMPLOGFILE}"
+fi
 # Create an empty output log
-#touch "${TEMPLOGFILE}"
+touch "${TEMPLOGFILE}"
 
 # Redirect all output to the output log
 exec >> "${TEMPLOGFILE}"
@@ -152,4 +152,4 @@ EMAIL_SUBJECT+=" ${SCHEMANAME}"
 	$EMAIL_TO < "${TEMPLOGFILE}"
 
 # Delete the output log
-#rm "${TEMPLOGFILE}"
+rm "${TEMPLOGFILE}"
